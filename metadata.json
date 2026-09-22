@@ -1,0 +1,6 @@
+{
+  "name": "nova-ai-assistant",
+  "description": "NOVA AI - Modern Full-Stack Virtual AI Assistant with interactive characters, voice controls, ChatGPT-style conversation, developer mode, study mode, and workspace tools.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en" class="light">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>NOVA AI - Modern Virtual AI Assistant</title>
+    <meta name="description" content="NOVA AI - Modern Full-Stack Virtual AI Assistant with interactive characters, voice controls, ChatGPT-style conversation, developer mode, study mode, and workspace tools." />
+    <meta property="og:title" content="NOVA AI - Modern Virtual AI Assistant" />
+    <meta property="og:description" content="NOVA AI - Modern Full-Stack Virtual AI Assistant with interactive characters, voice controls, ChatGPT-style conversation, developer mode, study mode, and workspace tools." />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+    <script>
+      (function() {
+        try {
+          var saved = localStorage.getItem('nova_theme');
+          var root = document.documentElement;
+          if (saved === 'dark') {
+            root.classList.add('dark');
+            root.classList.remove('light');
+          } else if (saved === 'system') {
+            if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
+              root.classList.add('dark');
+              root.classList.remove('light');
+            } else {
+              root.classList.remove('dark');
+              root.classList.add('light');
+            }
+          } else {
+            // Default theme must always be Light Mode for a new user
+            root.classList.remove('dark');
+            root.classList.add('light');
+          }
+        } catch (e) {
+          document.documentElement.classList.add('light');
+        }
+      })();
+    </script>
+  </head>
+  <body class="bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100 antialiased selection:bg-cyan-500/20 selection:text-cyan-700 dark:selection:text-cyan-300">
+    <div id="root"></div>
+    <script type="module" src="/frontend/src/main.tsx"></script>
+  </body>
+</html>
