@@ -4,7 +4,12 @@ import { TaskItem } from '../types/task';
 import { FileItem } from '../types/file';
 import { mockChats, mockMessages, mockNotes, mockTasks, mockFiles } from './mockData';
 
-const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+// API base URL — taken exclusively from the environment (never hardcoded).
+// Local dev: set VITE_API_URL in the root .env file to your local backend origin.
+// Production (Vercel): set VITE_API_URL in Project Settings → Environment Variables,
+// e.g. https://your-backend.example.com (backend origin only — no /api, no trailing slash).
+// Endpoints below include the /api prefix, e.g. `${BASE_URL}/api/settings`.
+const BASE_URL = (import.meta.env.VITE_API_URL || '').replace(/\/+$/, '').replace(/\/api$/, '');
 const TOKEN_KEY = 'nova_jwt_token';
 
 /**
@@ -79,7 +84,7 @@ export const api = {
   auth: {
     login: async (email: string, password: string) => {
       try {
-        const res = await apiFetch<{ user: any; token: string }>('/auth/login', {
+        const res = await apiFetch<{ user: any; token: string }>('/api/auth/login', {
           method: 'POST',
           body: JSON.stringify({ email, password }),
         });
@@ -98,7 +103,7 @@ export const api = {
 
     register: async (name: string, email: string, password: string) => {
       try {
-        const res = await apiFetch<{ user: any; token: string }>('/auth/register', {
+        const res = await apiFetch<{ user: any; token: string }>('/api/auth/register', {
           method: 'POST',
           body: JSON.stringify({ name, email, password }),
         });
@@ -120,7 +125,7 @@ export const api = {
     },
 
     getMe: async () => {
-      return apiFetch('/auth/me', { method: 'GET' }, {
+      return apiFetch('/api/auth/me', { method: 'GET' }, {
         id: 'demo-user-1',
         name: 'Alex Vance',
         email: 'alex.vance@nova.ai',
@@ -130,7 +135,7 @@ export const api = {
     },
 
     updateProfile: async (data: { name?: string; bio?: string }) => {
-      return apiFetch('/auth/profile', {
+      return apiFetch('/api/auth/profile', {
         method: 'PUT',
         body: JSON.stringify(data),
       });
@@ -140,7 +145,7 @@ export const api = {
   // Chat Services
   chats: {
     list: async (): Promise<ChatSession[]> => {
-      return apiFetch<ChatSession[]>('/chat', { method: 'GET' }, [...mockChats]);
+      return apiFetch<ChatSession[]>('/api/chat', { method: 'GET' }, [...mockChats]);
     },
 
     getMessages: async (chatId: string): Promise<ChatMessage[]> => {
@@ -153,7 +158,7 @@ export const api = {
         },
       ];
       try {
-        const res: any = await apiFetch(`/chat/${chatId}`, { method: 'GET' });
+        const res: any = await apiFetch(`/api/chat/${chatId}`, { method: 'GET' });
         return res?.messages || fallback;
       } catch {
         return fallback;
@@ -169,7 +174,7 @@ export const api = {
       };
 
       try {
-        const res: any = await apiFetch(`/chat/${chatId}/messages`, {
+        const res: any = await apiFetch(`/api/chat/${chatId}/messages`, {
           method: 'POST',
           body: JSON.stringify({ content }),
         });
@@ -181,7 +186,7 @@ export const api = {
 
     deleteChat: async (chatId: string): Promise<{ success: boolean }> => {
       return apiFetch<{ success: boolean }>(
-        `/chat/${chatId}`,
+        `/api/chat/${chatId}`,
         { method: 'DELETE' },
         { success: true }
       );
@@ -191,7 +196,7 @@ export const api = {
   // Notes Services
   notes: {
     list: async (): Promise<NoteItem[]> => {
-      return apiFetch<NoteItem[]>('/notes', { method: 'GET' }, [...mockNotes]);
+      return apiFetch<NoteItem[]>('/api/notes', { method: 'GET' }, [...mockNotes]);
     },
 
     create: async (note: Omit<NoteItem, 'id' | 'createdAt' | 'updatedAt'>): Promise<NoteItem> => {
@@ -201,28 +206,28 @@ export const api = {
         createdAt: new Date().toISOString().split('T')[0],
         updatedAt: new Date().toISOString().split('T')[0],
       };
-      return apiFetch<NoteItem>('/notes', {
+      return apiFetch<NoteItem>('/api/notes', {
         method: 'POST',
         body: JSON.stringify(note),
       }, fallback);
     },
 
     update: async (id: string, note: Partial<NoteItem>): Promise<NoteItem> => {
-      return apiFetch<NoteItem>(`/notes/${id}`, {
+      return apiFetch<NoteItem>(`/api/notes/${id}`, {
         method: 'PUT',
         body: JSON.stringify(note),
       }, { ...note, id } as NoteItem);
     },
 
     delete: async (id: string): Promise<{ success: boolean }> => {
-      return apiFetch<{ success: boolean }>(`/notes/${id}`, { method: 'DELETE' }, { success: true });
+      return apiFetch<{ success: boolean }>(`/api/notes/${id}`, { method: 'DELETE' }, { success: true });
     },
   },
 
   // Tasks Services
   tasks: {
     list: async (): Promise<TaskItem[]> => {
-      return apiFetch<TaskItem[]>('/tasks', { method: 'GET' }, [...mockTasks]);
+      return apiFetch<TaskItem[]>('/api/tasks', { method: 'GET' }, [...mockTasks]);
     },
 
     create: async (task: Omit<TaskItem, 'id'>): Promise<TaskItem> => {
@@ -230,46 +235,46 @@ export const api = {
         ...task,
         id: `task-${Date.now()}`,
       };
-      return apiFetch<TaskItem>('/tasks', {
+      return apiFetch<TaskItem>('/api/tasks', {
         method: 'POST',
         body: JSON.stringify(task),
       }, fallback);
     },
 
     toggle: async (id: string, completed: boolean): Promise<{ success: boolean }> => {
-      return apiFetch<{ success: boolean }>(`/tasks/${id}`, {
+      return apiFetch<{ success: boolean }>(`/api/tasks/${id}`, {
         method: 'PUT',
         body: JSON.stringify({ completed }),
       }, { success: true });
     },
 
     delete: async (id: string): Promise<{ success: boolean }> => {
-      return apiFetch<{ success: boolean }>(`/tasks/${id}`, { method: 'DELETE' }, { success: true });
+      return apiFetch<{ success: boolean }>(`/api/tasks/${id}`, { method: 'DELETE' }, { success: true });
     },
   },
 
   // Reminders Services
   reminders: {
     list: async () => {
-      return apiFetch('/reminders', { method: 'GET' }, []);
+      return apiFetch('/api/reminders', { method: 'GET' }, []);
     },
 
     create: async (reminder: { title: string; dateTime: string; isRepeat?: boolean }) => {
-      return apiFetch('/reminders', {
+      return apiFetch('/api/reminders', {
         method: 'POST',
         body: JSON.stringify(reminder),
       });
     },
 
     delete: async (id: string) => {
-      return apiFetch(`/reminders/${id}`, { method: 'DELETE' });
+      return apiFetch(`/api/reminders/${id}`, { method: 'DELETE' });
     },
   },
 
   // Files Services
   files: {
     list: async (): Promise<FileItem[]> => {
-      return apiFetch<FileItem[]>('/files', { method: 'GET' }, [...mockFiles]);
+      return apiFetch<FileItem[]>('/api/files', { method: 'GET' }, [...mockFiles]);
     },
 
     upload: async (file: File): Promise<FileItem> => {
@@ -284,7 +289,7 @@ export const api = {
         uploadedAt: 'Just now',
       };
 
-      return apiFetch<FileItem>('/files/upload', {
+      return apiFetch<FileItem>('/api/files/upload', {
         method: 'POST',
         body: formData,
       }, fallback);
@@ -301,14 +306,14 @@ export const api = {
     },
 
     delete: async (id: string): Promise<{ success: boolean }> => {
-      return apiFetch<{ success: boolean }>(`/files/${id}`, { method: 'DELETE' }, { success: true });
+      return apiFetch<{ success: boolean }>(`/api/files/${id}`, { method: 'DELETE' }, { success: true });
     },
   },
 
   // Settings
   settings: {
     get: async () => {
-      return apiFetch('/settings', { method: 'GET' }, {
+      return apiFetch('/api/settings', { method: 'GET' }, {
         appearance: { theme: 'dark' },
         voice: { speed: 1.0, pitch: 1.0, autoSpeak: false },
         aiPreferences: { responseStyle: 'balanced', creativity: 0.7, continuousMemory: true },
@@ -316,7 +321,7 @@ export const api = {
     },
 
     update: async (settings: any) => {
-      return apiFetch('/settings', {
+      return apiFetch('/api/settings', {
         method: 'PUT',
         body: JSON.stringify(settings),
       }, settings);
@@ -326,32 +331,32 @@ export const api = {
   // AI Services
   ai: {
     developer: async (action: string, input: string, language = 'typescript') => {
-      return apiFetch('/ai/developer', {
+      return apiFetch('/api/ai/developer', {
         method: 'POST',
         body: JSON.stringify({ action, input, language }),
       });
     },
 
     study: async (topic: string, difficulty = 'Intermediate') => {
-      return apiFetch('/ai/study', {
+      return apiFetch('/api/ai/study', {
         method: 'POST',
         body: JSON.stringify({ topic, difficulty }),
       });
     },
 
     getWeather: async (location = 'San Francisco, CA') => {
-      return apiFetch(`/ai/weather?location=${encodeURIComponent(location)}`, { method: 'GET' });
+      return apiFetch(`/api/ai/weather?location=${encodeURIComponent(location)}`, { method: 'GET' });
     },
 
     search: async (query: string) => {
-      return apiFetch(`/ai/search?q=${encodeURIComponent(query)}`, { method: 'GET' });
+      return apiFetch(`/api/ai/search?q=${encodeURIComponent(query)}`, { method: 'GET' });
     },
   },
 
   // Health Check
   health: {
     check: async () => {
-      return apiFetch('/health', { method: 'GET' });
+      return apiFetch('/api/health', { method: 'GET' });
     },
   },
 
