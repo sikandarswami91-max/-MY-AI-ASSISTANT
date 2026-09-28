@@ -4,10 +4,9 @@ import { TaskItem } from '../types/task';
 import { FileItem } from '../types/file';
 import { mockChats, mockMessages, mockNotes, mockTasks, mockFiles } from './mockData';
 
-// API base URL — taken exclusively from the environment (never hardcoded).
-// Local dev: set VITE_API_URL in the root .env file to your local backend origin.
-// Production (Vercel): set VITE_API_URL in Project Settings → Environment Variables,
-// e.g. https://your-backend.example.com (backend origin only — no /api, no trailing slash).
+// Production (Vercel): set VITE_API_URL to the deployed Render backend origin.
+// Local development can leave it empty and use the Vite proxy in vite.config.ts.
+// Do not include /api or a trailing slash.
 // Endpoints below include the /api prefix, e.g. `${BASE_URL}/api/settings`.
 const BASE_URL = (import.meta.env.VITE_API_URL || '').replace(/\/+$/, '').replace(/\/api$/, '');
 const TOKEN_KEY = 'nova_jwt_token';
@@ -50,6 +49,13 @@ async function apiFetch<T>(
   }
 
   try {
+    if (
+      import.meta.env.PROD &&
+      (!BASE_URL || /^https?:\/\/(localhost|127(?:\.\d{1,3}){3}|\[::1\])(?::|\/|$)/i.test(BASE_URL))
+    ) {
+      throw new Error('Set VITE_API_URL to the deployed Render backend origin for production builds.');
+    }
+
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 

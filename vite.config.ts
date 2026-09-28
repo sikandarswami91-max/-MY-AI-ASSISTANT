@@ -17,6 +17,23 @@ export default defineConfig(() => {
       hmr: process.env.DISABLE_HMR !== 'true',
       // Disable file watching when DISABLE_HMR is true to save CPU during agent edits.
       watch: process.env.DISABLE_HMR === 'true' ? null : {},
+      // Fallback proxy: if VITE_API_URL is ever empty/missing at runtime, same-origin
+      // `/api/*` requests still reach the backend instead of returning 404 from Vite.
+      proxy: {
+        '/api': {
+          target: 'http://localhost:5000',
+          changeOrigin: true,
+        },
+      },
+    },
+    preview: {
+      // Same proxy for `vite preview` (production preview server).
+      proxy: {
+        '/api': {
+          target: 'http://localhost:5000',
+          changeOrigin: true,
+        },
+      },
     },
   };
 });
