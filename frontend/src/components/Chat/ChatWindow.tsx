@@ -5,6 +5,7 @@ import { ChatInput } from './ChatInput';
 import { useCharacter } from '../../context/CharacterContext';
 import { useVoiceContext } from '../../context/VoiceContext';
 import { useVoice } from '../../hooks/useVoice';
+import { api } from '../../services/api';
 import { Sparkles, Trash2, Volume2, RotateCcw } from 'lucide-react';
 import { VoiceVisualizer } from '../Voice/VoiceVisualizer';
 import {
@@ -80,56 +81,88 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
     }
   }, [settings.language, settings.autoSpeak, simulateSpeech]);
 
+  // Lazily create a real backend chat on first send; cache its id for the session.
+  const chatIdRef = useRef<string | null>(null);
+  const chatUnavailableRef = useRef(false);
+
+  const ensureChatId = async (): Promise<string | null> => {
+    if (chatIdRef.current) return chatIdRef.current;
+    if (chatUnavailableRef.current) return null; // backend already known offline — don't retry per message
+    try {
+      const chat = await api.chats.create(chatTitle);
+      const id = chat?._id || chat?.id;
+      if (!id) throw new Error('Chat creation returned no id');
+      chatIdRef.current = id;
+      return id;
+    } catch {
+      chatUnavailableRef.current = true;
+      return null;
+    }
+  };
+
+  const deliverReply = (replyContent: string) => {
+    const assistantMsg: ChatMessage = {
+      id: `asst-${Date.now()}`,
+      role: 'assistant',
+      content: replyContent,
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    };
+
+    setMessages((prev) => [...prev, assistantMsg]);
+    setIsThinking(false);
+    setCharacterState('SPEAKING');
+
+    // If Auto Speak is enabled, trigger speech
+    if (settings.autoSpeak) {
+      simulateSpeech(replyContent.slice(0, 80));
+    }
+
+    setTimeout(() => {
+      setCharacterState('IDLE');
+    }, 2500);
+  };
+
   const handleSendMessage = (content: string, attachments?: File[]) => {
     if (!content.trim() && (!attachments || attachments.length === 0)) return;
+
+    const attachmentMeta = attachments?.map((f, i) => ({
+      id: `att-${i}`,
+      name: f.name,
+      type: f.type.startsWith('image/') ? ('image' as const) : ('file' as const),
+      size: `${Math.round(f.size / 1024)} KB`,
+    }));
 
     const userMessage: ChatMessage = {
       id: `user-${Date.now()}`,
       role: 'user',
       content,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      attachments: attachments?.map((f, i) => ({
-        id: `att-${i}`,
-        name: f.name,
-        type: f.type.startsWith('image/') ? 'image' : 'file',
-        size: `${Math.round(f.size / 1024)} KB`,
-      })),
+      attachments: attachmentMeta,
     };
 
     setMessages((prev) => [...prev, userMessage]);
     setIsThinking(true);
     setCharacterState('THINKING');
 
-    // Simulate assistant reasoning & response
-    setTimeout(() => {
-      setIsThinking(false);
-      setCharacterState('SPEAKING');
+    void (async () => {
+      try {
+        const chatId = await ensureChatId();
+        if (!chatId) throw new Error('Backend unavailable');
 
-      const replies = [
-        `I analyzed your input regarding "${content}".\n\n### Recommendation:\n1. **Modular Architecture**: Deconstruct the problem into decoupled, testable components.\n2. **State Isolation**: Maintain pure local UI state while ensuring bidirectional data synchronization with the backend.\n3. **Resilience & Caching**: Cache idempotent requests and graceful offline fallbacks.\n\nWould you like me to generate specific code or create an actionable task?`,
-        `Here is an optimized perspective on "${content}":\n\nWhen scaling distributed workflows, consistency models must balance throughput and isolation. Using asynchronous batching significantly reduces latency while preserving deterministic outcomes.`,
-        `Understood. I have logged this into your active session context. Would you like me to schedule a reminder or create a technical note in your planner?`,
-      ];
-      const pickedReply = replies[Math.floor(Math.random() * replies.length)];
-
-      const assistantMsg: ChatMessage = {
-        id: `asst-${Date.now()}`,
-        role: 'assistant',
-        content: pickedReply,
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      };
-
-      setMessages((prev) => [...prev, assistantMsg]);
-
-      // If Auto Speak is enabled, trigger speech
-      if (settings.autoSpeak) {
-        simulateSpeech(pickedReply.slice(0, 80));
+        // Real AI response from the backend (Gemini/OpenAI via chatService)
+        const reply = await api.chats.sendMessage(chatId, content, attachmentMeta);
+        deliverReply(reply.content);
+      } catch {
+        // Graceful offline fallback so the chat still responds without a backend
+        const localReplies = [
+          `I analyzed your input regarding "${content}".\n\n### Recommendation:\n1. **Modular Architecture**: Deconstruct the problem into decoupled, testable components.\n2. **State Isolation**: Maintain pure local UI state while ensuring bidirectional data synchronization with the backend.\n3. **Resilience & Caching**: Cache idempotent requests and graceful offline fallbacks.\n\nWould you like me to generate specific code or create an actionable task?`,
+          `Here is an optimized perspective on "${content}":\n\nWhen scaling distributed workflows, consistency models must balance throughput and isolation. Using asynchronous batching significantly reduces latency while preserving deterministic outcomes.`,
+          `Understood. I have logged this into your active session context. Would you like me to schedule a reminder or create a technical note in your planner?`,
+        ];
+        const pickedReply = localReplies[Math.floor(Math.random() * localReplies.length)];
+        setTimeout(() => deliverReply(pickedReply), 600);
       }
-
-      setTimeout(() => {
-        setCharacterState('IDLE');
-      }, 2500);
-    }, 1100);
+    })();
   };
 
   const handleClearChat = () => {

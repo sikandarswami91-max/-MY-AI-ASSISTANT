@@ -1,6 +1,15 @@
 import dotenv from 'dotenv';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+// Load env files in priority order:
+// 1. `process.cwd()/.env` (e.g. backend/.env when the server runs from backend/)
+// 2. monorepo root `.env` (GEMINI_API_KEY, MONGODB_URI, etc.)
+// dotenv never overwrites variables that are already set, so the first file wins.
 dotenv.config();
+dotenv.config({ path: path.resolve(__dirname, '../../../.env') });
 
 export const ENV = {
   PORT: parseInt(process.env.PORT || '5000', 10),

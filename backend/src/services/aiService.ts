@@ -38,24 +38,61 @@ export interface WebSearchResult {
   results: Array<{ title: string; snippet: string; url: string }>;
 }
 
+const SYSTEM_INSTRUCTION =
+  'You are NOVA, a helpful, precise AI assistant inside the NOVA AI Assistant app. ' +
+  'Answer the user\u2019s question directly and accurately (e.g. factual topics like "what is HTML" should get a real, clear explanation). ' +
+  'Use Markdown formatting with headings, lists and code blocks where useful. Keep answers concise unless the user asks for depth.';
+
+/** Accepts keys that were never filled in, e.g. "MY_GEMINI_API_KEY". */
+const isUsableKey = (key?: string): boolean =>
+  !!key && key.length > 8 && !/^MY_/i.test(key) && !/YOUR_/i.test(key);
+
 export class AIService {
   /**
    * 1. Text AI generation
+   * Tries real providers first (Gemini → OpenAI), then falls back to the
+   * local synthesis engine so the API never hard-fails.
    */
   async generateText(prompt: string, options: AIExecutionOptions = {}): Promise<TextGenerationResult> {
     const temperature = options.temperature ?? 0.7;
+    const history: Array<{ role: 'user' | 'assistant'; content: string }> =
+      (options.context?.history as Array<{ role: 'user' | 'assistant'; content: string }>) || [];
 
-    // If external API key is provided, connect to provider
-    if (ENV.GEMINI_API_KEY) {
+    const providers: Array<{ name: string; model: string; call: () => Promise<string> }> = [];
+    if (isUsableKey(ENV.GEMINI_API_KEY)) {
+      providers.push({
+        name: 'Gemini',
+        model: options.model || 'gemini-2.0-flash',
+        call: () => this.callGemini(prompt, history, temperature),
+      });
+    }
+    if (isUsableKey(ENV.OPENAI_API_KEY)) {
+      providers.push({
+        name: 'OpenAI',
+        model: options.model || 'gpt-4o-mini',
+        call: () => this.callOpenAI(prompt, history, temperature),
+      });
+    }
+
+    for (const provider of providers) {
       try {
-        // Architecture hook for @google/genai
-        // return await callGeminiApi(prompt, options);
-      } catch (err) {
-        console.warn('[AI Service] External provider call failed, falling back to local reasoning engine.');
+        const text = await provider.call();
+        if (text) {
+          return {
+            text,
+            tokensUsed: Math.floor(text.length / 4),
+            model: provider.model,
+            finishReason: 'stop',
+          };
+        }
+      } catch (err: any) {
+        console.warn(
+          `[AI Service] ${provider.name} call failed (${err?.message || err}), trying next provider...`
+        );
       }
     }
 
-    // Default intelligent local synthesis engine
+    // Default intelligent local synthesis engine (offline fallback)
     const responses = [
       `I analyzed your prompt: "${prompt}".\n\n### Architectural Assessment\n1. **Decoupled Topology**: Ensure concerns are strictly separated between data models and ingestion streams.\n2. **Resilience Boundaries**: Isolate transient failures with exponential backoffs.\n3. **Telemetry & Validation**: Enforce schemas at boundaries with runtime type checking.`,
       `Here is an optimized perspective on "${prompt}":\n\nWhen scaling distributed workflows, balancing consistency models against write throughput yields significant latency reduction.\n\nKey takeaways:\n- Utilize idempotent message queues\n- Implement optimistic concurrency control\n- Cache read-heavy hot spots`,
@@ -67,9 +104,90 @@ export class AIService {
     return {
       text,
       tokensUsed: Math.floor(prompt.length / 4) + 120,
-      model: options.model || 'nova-neural-v2',
+      model: options.model || 'nova-neural-v2 (local fallback)',
       finishReason: 'stop',
     };
+  }
+
+  /** Google Gemini REST call (no SDK dependency; Node ≥18 global fetch). */
+  private async callGemini(
+    prompt: string,
+    history: Array<{ role: 'user' | 'assistant'; content: string }>,
+    temperature: number
+  ): Promise<string> {
+    const model = 'gemini-2.0-flash';
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-goog-api-key': ENV.GEMINI_API_KEY,
+        },
+        body: JSON.stringify({
+          systemInstruction: { parts: [{ text: SYSTEM_INSTRUCTION }] },
+          contents: [
+            ...history.map((m) => ({
+              role: m.role === 'assistant' ? 'model' : 'user',
+              parts: [{ text: m.content }],
+            })),
+            { role: 'user', parts: [{ text: prompt }] },
+          ],
+          generationConfig: { temperature, maxOutputTokens: 2048 },
+        }),
+        signal: AbortSignal.timeout(30_000),
+      }
+    );
+
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(`Gemini HTTP ${res.status}: ${body.slice(0, 200)}`);
+    }
+
+    const data: any = await res.json();
+    const text: string =
+      data?.candidates?.[0]?.content?.parts
+        ?.map((p: any) => p.text || '')
+        .join('')
+        .trim() || '';
+    if (!text) throw new Error('Gemini returned an empty response');
+    return text;
+  }
+
+  /** OpenAI chat completion REST call (fallback provider). */
+  private async callOpenAI(
+    prompt: string,
+    history: Array<{ role: 'user' | 'assistant'; content: string }>,
+    temperature: number
+  ): Promise<string> {
+    const res = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${ENV.OPENAI_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        temperature,
+        max_tokens: 2048,
+        messages: [
+          { role: 'system', content: SYSTEM_INSTRUCTION },
+          ...history.map((m) => ({ role: m.role, content: m.content })),
+          { role: 'user', content: prompt },
+        ],
+      }),
+      signal: AbortSignal.timeout(30_000),
+    });
+
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(`OpenAI HTTP ${res.status}: ${body.slice(0, 200)}`);
+    }
+
+    const data: any = await res.json();
+    const text: string = data?.choices?.[0]?.message?.content?.trim() || '';
+    if (!text) throw new Error('OpenAI returned an empty response');
+    return text;
   }
 
   /**

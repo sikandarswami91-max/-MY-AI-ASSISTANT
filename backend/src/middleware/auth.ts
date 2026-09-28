@@ -48,9 +48,12 @@ export const optionalAuth = (
     }
   }
 
-  // Fallback demo user context
+  // Fallback demo user context.
+  // NOTE: userId must be a valid 24-hex MongoDB ObjectId — the Chat/Message/etc.
+  // schemas store userId as ObjectId, and a non-ObjectId like 'demo-user-1'
+  // made every create/find throw a CastError (HTTP 500).
   req.user = {
-    userId: 'demo-user-1',
+    userId: '64b000000000000000000001',
     email: 'demo@nova.ai',
     name: 'Alex Vance',
     role: 'user',

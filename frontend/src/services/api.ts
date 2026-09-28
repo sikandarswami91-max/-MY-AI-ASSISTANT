@@ -34,7 +34,8 @@ export const removeToken = (): void => {
 async function apiFetch<T>(
   endpoint: string,
   options: RequestInit = {},
-  fallbackData?: T
+  fallbackData?: T,
+  timeoutMs = 4000
 ): Promise<T> {
   const token = getToken();
   const headers: HeadersInit = {
@@ -50,7 +51,7 @@ async function apiFetch<T>(
 
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 4000);
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
     const response = await fetch(`${BASE_URL}${endpoint}`, {
       ...options,
@@ -148,6 +149,22 @@ export const api = {
       return apiFetch<ChatSession[]>('/api/chat', { method: 'GET' }, [...mockChats]);
     },
 
+    // Creates a real chat on the backend (no fallback — callers should handle failure).
+    create: async (
+      title?: string,
+      category?: string
+    ): Promise<{ _id?: string; id?: string; title?: string }> => {
+      return apiFetch<{ _id?: string; id?: string; title?: string }>(
+        '/api/chat',
+        {
+          method: 'POST',
+          body: JSON.stringify({ title, category }),
+        },
+        undefined,
+        15000
+      );
+    },
+
     getMessages: async (chatId: string): Promise<ChatMessage[]> => {
       const fallback = mockMessages[chatId] || [
         {
@@ -165,7 +182,11 @@ export const api = {
       }
     },
 
-    sendMessage: async (chatId: string, content: string): Promise<ChatMessage> => {
+    sendMessage: async (
+      chatId: string,
+      content: string,
+      attachments?: ChatMessage['attachments']
+    ): Promise<ChatMessage> => {
       const fallback: ChatMessage = {
         id: `msg-${Date.now()}`,
         role: 'assistant',
@@ -174,11 +195,28 @@ export const api = {
       };
 
       try {
-        const res: any = await apiFetch(`/api/chat/${chatId}/messages`, {
-          method: 'POST',
-          body: JSON.stringify({ content }),
-        });
-        return res?.assistantMessage || fallback;
+        // AI calls can take a while — use a long timeout instead of the default 4s
+        const res: any = await apiFetch(
+          `/api/chat/${chatId}/messages`,
+          {
+            method: 'POST',
+            body: JSON.stringify({ content, attachments: attachments || [] }),
+          },
+          undefined,
+          60000
+        );
+        const msg = res?.assistantMessage;
+        if (msg) {
+          return {
+            id: msg._id || msg.id || `msg-${Date.now()}`,
+            role: 'assistant',
+            content: msg.content,
+            timestamp: msg.timestamp || 'Just now',
+            codeBlocks: msg.codeBlocks,
+            attachments: msg.attachments,
+          };
+        }
+        return fallback;
       } catch {
         return fallback;
       }

@@ -50,8 +50,13 @@ export class ChatService {
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     });
 
-    // 2. Generate AI response
-    const aiResult = await aiService.generateText(content);
+    // 2. Generate AI response with recent conversation as context
+    const priorMessages = await Message.find({ chatId }).sort({ createdAt: -1 }).limit(10);
+    const history = priorMessages
+      .reverse()
+      .filter((m) => m.role !== 'system')
+      .map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content }));
+    const aiResult = await aiService.generateText(content, { context: { history } });
 
     // 3. Save assistant response
     const assistantMsg = await Message.create({
