@@ -7,11 +7,11 @@ const router = Router();
 router.post('/generate', async (req: Request, res: Response) => {
   try {
     const { prompt, options } = req.body;
-    if (!prompt) return errorResponse(res, 'Prompt is required', 400);
+    if (!prompt || !String(prompt).trim()) return errorResponse(res, 'Prompt is required', 400);
     const result = await aiService.generateText(prompt, options);
     return successResponse(res, result);
   } catch (err: any) {
-    return errorResponse(res, err.message, 500);
+    return errorResponse(res, err.message, err.statusCode || 500);
   }
 });
 

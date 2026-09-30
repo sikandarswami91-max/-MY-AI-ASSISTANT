@@ -40,23 +40,30 @@ export class ChatService {
   }
 
   async postMessage(chatId: string, userId: string, content: string, attachments: any[] = []) {
+    const text = typeof content === 'string' ? content : '';
+
     // 1. Save user message
     const userMsg = await Message.create({
       chatId,
       userId,
       role: 'user',
-      content,
+      content: text,
       attachments,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     });
 
-    // 2. Generate AI response with recent conversation as context
+    // 2. Generate AI response with recent conversation as context.
+    // The user's exact message is forwarded as the prompt.
     const priorMessages = await Message.find({ chatId }).sort({ createdAt: -1 }).limit(10);
     const history = priorMessages
       .reverse()
       .filter((m) => m.role !== 'system')
       .map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content }));
-    const aiResult = await aiService.generateText(content, { context: { history } });
+    const aiPrompt =
+      text.trim() ||
+      `The user sent ${attachments.length} attachment(s) without any text: ` +
+        attachments.map((a: any) => a?.name).filter(Boolean).join(', ');
+    const aiResult = await aiService.generateText(aiPrompt, { context: { history } });
 
     // 3. Save assistant response
     const assistantMsg = await Message.create({

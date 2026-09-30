@@ -1,5 +1,6 @@
 import { ENV } from '../config/env.js';
 import { AIExecutionOptions } from '../types/index.js';
+import { NOVA_SYSTEM_PROMPT, NOVA_SHORT_PROMPT } from '../config/aiPersonality.js';
 
 export interface TextGenerationResult {
   text: string;
@@ -38,25 +39,40 @@ export interface WebSearchResult {
   results: Array<{ title: string; snippet: string; url: string }>;
 }
 
-const SYSTEM_INSTRUCTION =
-  'You are NOVA, a helpful, precise AI assistant inside the NOVA AI Assistant app. ' +
-  'Answer the user\u2019s question directly and accurately (e.g. factual topics like "what is HTML" should get a real, clear explanation). ' +
-  'Use Markdown formatting with headings, lists and code blocks where useful. Keep answers concise unless the user asks for depth.';
+
 
 /** Accepts keys that were never filled in, e.g. "MY_GEMINI_API_KEY". */
 const isUsableKey = (key?: string): boolean =>
   !!key && key.length > 8 && !/^MY_/i.test(key) && !/YOUR_/i.test(key);
 
+/** Typed API error so controllers can forward the correct HTTP status. */
+export class AiProviderError extends Error {
+  statusCode: number;
+  constructor(message: string, statusCode = 502) {
+    super(message);
+    this.name = 'AiProviderError';
+    this.statusCode = statusCode;
+  }
+}
+
 export class AIService {
+  /** Once the OpenAI key is known to be out of credits, stop calling it for this session. */
+  private openAiQuotaExhausted = false;
+
   /**
    * 1. Text AI generation
-   * Tries real providers first (Gemini → OpenAI), then falls back to the
-   * local synthesis engine so the API never hard-fails.
+   * Sends the EXACT user prompt (plus conversation history) to real AI providers:
+   * Gemini -> OpenAI -> Pollinations (keyless). If every provider fails, a clear
+   * error is thrown instead of returning fabricated/canned text.
    */
   async generateText(prompt: string, options: AIExecutionOptions = {}): Promise<TextGenerationResult> {
     const temperature = options.temperature ?? 0.7;
     const history: Array<{ role: 'user' | 'assistant'; content: string }> =
       (options.context?.history as Array<{ role: 'user' | 'assistant'; content: string }>) || [];
+
+    if (!prompt || !prompt.trim()) {
+      throw new AiProviderError('Message content is empty.', 400);
+    }
 
     const providers: Array<{ name: string; model: string; call: () => Promise<string> }> = [];
     if (isUsableKey(ENV.GEMINI_API_KEY)) {
@@ -66,14 +82,22 @@ export class AIService {
         call: () => this.callGemini(prompt, history, temperature),
       });
     }
-    if (isUsableKey(ENV.OPENAI_API_KEY)) {
+    if (isUsableKey(ENV.OPENAI_API_KEY) && !this.openAiQuotaExhausted) {
       providers.push({
         name: 'OpenAI',
         model: options.model || 'gpt-4o-mini',
         call: () => this.callOpenAI(prompt, history, temperature),
       });
     }
+    // Keyless last-resort provider: still a REAL model answering the REAL
+    // question — there is deliberately no hardcoded/canned response anywhere.
+    providers.push({
+      name: 'Pollinations',
+      model: 'pollinations-openai',
+      call: () => this.callPollinations(prompt, history),
+    });
 
+    let lastError = '';
     for (const provider of providers) {
       try {
         const text = await provider.call();
@@ -85,28 +109,21 @@ export class AIService {
             finishReason: 'stop',
           };
         }
+        lastError = `${provider.name} returned an empty response`;
       } catch (err: any) {
-        console.warn(
-          `[AI Service] ${provider.name} call failed (${err?.message || err}), trying next provider...`
-        );
+        lastError = `${provider.name}: ${err?.message || err}`;
+        console.warn(`[AI Service] ${lastError} — trying next provider...`);
+        if (/insufficient_quota|credit_balance_exhausted/i.test(String(err?.message || ''))) {
+          this.openAiQuotaExhausted = true;
+        }
       }
     }
 
-    // Default intelligent local synthesis engine (offline fallback)
-    const responses = [
-      `I analyzed your prompt: "${prompt}".\n\n### Architectural Assessment\n1. **Decoupled Topology**: Ensure concerns are strictly separated between data models and ingestion streams.\n2. **Resilience Boundaries**: Isolate transient failures with exponential backoffs.\n3. **Telemetry & Validation**: Enforce schemas at boundaries with runtime type checking.`,
-      `Here is an optimized perspective on "${prompt}":\n\nWhen scaling distributed workflows, balancing consistency models against write throughput yields significant latency reduction.\n\nKey takeaways:\n- Utilize idempotent message queues\n- Implement optimistic concurrency control\n- Cache read-heavy hot spots`,
-      `Understood. I have evaluated "${prompt}" in the context of your active NOVA session. Would you like me to generate specialized code, extract study flashcards, or create scheduled deliverables?`,
-    ];
-
-    const text = responses[Math.floor(Math.random() * responses.length)];
-
-    return {
-      text,
-      tokensUsed: Math.floor(prompt.length / 4) + 120,
-      model: options.model || 'nova-neural-v2 (local fallback)',
-      finishReason: 'stop',
-    };
+    // No fabricated fallback — surface a real, actionable API error.
+    throw new AiProviderError(
+      lastError ? `AI provider request failed (${lastError})` : 'AI provider not configured.',
+      502
+    );
   }
 
   /** Google Gemini REST call (no SDK dependency; Node ≥18 global fetch). */
@@ -125,7 +142,7 @@ export class AIService {
           'x-goog-api-key': ENV.GEMINI_API_KEY,
         },
         body: JSON.stringify({
-          systemInstruction: { parts: [{ text: SYSTEM_INSTRUCTION }] },
+          systemInstruction: { parts: [{ text: NOVA_SYSTEM_PROMPT }] },
           contents: [
             ...history.map((m) => ({
               role: m.role === 'assistant' ? 'model' : 'user',
@@ -171,7 +188,7 @@ export class AIService {
         temperature,
         max_tokens: 2048,
         messages: [
-          { role: 'system', content: SYSTEM_INSTRUCTION },
+          { role: 'system', content: NOVA_SYSTEM_PROMPT },
           ...history.map((m) => ({ role: m.role, content: m.content })),
           { role: 'user', content: prompt },
         ],
@@ -187,6 +204,36 @@ export class AIService {
     const data: any = await res.json();
     const text: string = data?.choices?.[0]?.message?.content?.trim() || '';
     if (!text) throw new Error('OpenAI returned an empty response');
+    return text;
+  }
+
+  /**
+   * Pollinations — keyless text API (last-resort provider).
+   * Uses the GET endpoint and embeds the system instruction + recent history
+   * directly into the text prompt so conversation context is preserved.
+   */
+  private async callPollinations(
+    prompt: string,
+    history: Array<{ role: 'user' | 'assistant'; content: string }>
+  ): Promise<string> {
+    const lines: string[] = [NOVA_SHORT_PROMPT, ''];
+    for (const m of history.slice(-4)) {
+      lines.push(`${m.role === 'assistant' ? 'NOVA' : 'User'}: ${m.content}`);
+    }
+    lines.push(`User: ${prompt}`, 'NOVA:');
+    let composed = lines.join('\n');
+    // Keep the GET URL within safe length limits.
+    if (composed.length > 1200) {
+      composed = `${NOVA_SHORT_PROMPT}\n\nUser: ${prompt}\nNOVA:`;
+    }
+
+    const res = await fetch(
+      `https://text.pollinations.ai/${encodeURIComponent(composed)}?model=openai`,
+      { signal: AbortSignal.timeout(30_000) }
+    );
+    if (!res.ok) throw new Error(`Pollinations HTTP ${res.status}`);
+    const text = (await res.text()).trim();
+    if (!text) throw new Error('Pollinations returned an empty response');
     return text;
   }
 

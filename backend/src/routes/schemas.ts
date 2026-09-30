@@ -17,13 +17,13 @@ export const changePasswordSchema = z.object({
 });
 
 export const createChatSchema = z.object({
-  title: z.string().optional(),
-  category: z.string().optional(),
+  title: z.string().max(120, 'Title is too long (max 120 characters)').optional(),
+  category: z.string().max(60, 'Category is too long').optional(),
 });
 
 export const postMessageSchema = z.object({
-  content: z.string().optional().default(''),
-  attachments: z.array(z.any()).optional().default([]),
+  content: z.string().max(4000, 'Message is too long (max 4000 characters)').optional().default(''),
+  attachments: z.array(z.any()).max(10, 'Maximum of 10 attachments allowed').optional().default([]),
 });
 
 export const noteSchema = z.object({

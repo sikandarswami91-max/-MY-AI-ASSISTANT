@@ -225,39 +225,29 @@ export const api = {
       content: string,
       attachments?: ChatMessage["attachments"],
     ): Promise<ChatMessage> => {
-      const fallback: ChatMessage = {
-        id: `msg-${Date.now()}`,
-        role: "assistant",
-        content: `I received: "${content}". NOVA neural reasoning core evaluated your request.`,
-        timestamp: "Just now",
-      };
-
-      try {
-        // AI calls can take a while — use a long timeout instead of the default 4s
-        const res: any = await apiFetch(
-          `/api/chat/${chatId}/messages`,
-          {
-            method: "POST",
-            body: JSON.stringify({ content, attachments: attachments || [] }),
-          },
-          undefined,
-          60000,
-        );
-        const msg = res?.assistantMessage;
-        if (msg) {
-          return {
-            id: msg._id || msg.id || `msg-${Date.now()}`,
-            role: "assistant",
-            content: msg.content,
-            timestamp: msg.timestamp || "Just now",
-            codeBlocks: msg.codeBlocks,
-            attachments: msg.attachments,
-          };
-        }
-        return fallback;
-      } catch {
-        return fallback;
+      // Propagate API/network errors to the caller — never fabricate a reply.
+      // AI calls can take a while, so use a long timeout instead of the default 4s.
+      const res: any = await apiFetch(
+        `/api/chat/${chatId}/messages`,
+        {
+          method: "POST",
+          body: JSON.stringify({ content, attachments: attachments || [] }),
+        },
+        undefined,
+        60000,
+      );
+      const msg = res?.assistantMessage;
+      if (!msg) {
+        throw new Error("The backend did not return an assistant message.");
       }
+      return {
+        id: msg._id || msg.id || `msg-${Date.now()}`,
+        role: "assistant",
+        content: msg.content,
+        timestamp: msg.timestamp || "Just now",
+        codeBlocks: msg.codeBlocks,
+        attachments: msg.attachments,
+      };
     },
 
     deleteChat: async (chatId: string): Promise<{ success: boolean }> => {

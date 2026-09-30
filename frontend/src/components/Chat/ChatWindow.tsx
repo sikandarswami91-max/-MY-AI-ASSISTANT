@@ -152,15 +152,15 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
         // Real AI response from the backend (Gemini/OpenAI via chatService)
         const reply = await api.chats.sendMessage(chatId, content, attachmentMeta);
         deliverReply(reply.content);
-      } catch {
-        // Graceful offline fallback so the chat still responds without a backend
-        const localReplies = [
-          `I analyzed your input regarding "${content}".\n\n### Recommendation:\n1. **Modular Architecture**: Deconstruct the problem into decoupled, testable components.\n2. **State Isolation**: Maintain pure local UI state while ensuring bidirectional data synchronization with the backend.\n3. **Resilience & Caching**: Cache idempotent requests and graceful offline fallbacks.\n\nWould you like me to generate specific code or create an actionable task?`,
-          `Here is an optimized perspective on "${content}":\n\nWhen scaling distributed workflows, consistency models must balance throughput and isolation. Using asynchronous batching significantly reduces latency while preserving deterministic outcomes.`,
-          `Understood. I have logged this into your active session context. Would you like me to schedule a reminder or create a technical note in your planner?`,
-        ];
-        const pickedReply = localReplies[Math.floor(Math.random() * localReplies.length)];
-        setTimeout(() => deliverReply(pickedReply), 600);
+      } catch (err) {
+        // Honest error message instead of fabricated/canned replies.
+        const detail = err instanceof Error && err.message ? err.message : 'Network error';
+        const reply =
+          `\u26a0\ufe0f **NOVA couldn't generate a response.**\n\n` +
+          `**Reason:** ${detail}\n\n` +
+          `Make sure the backend is running (\`cd backend && npm run dev\`) ` +
+          `and a valid \`GEMINI_API_KEY\` is set in \`.env\`.`;
+        setTimeout(() => deliverReply(reply), 300);
       }
     })();
   };

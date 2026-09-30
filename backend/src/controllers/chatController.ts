@@ -44,14 +44,17 @@ export const postMessage = async (req: AuthenticatedRequest, res: Response) => {
     const userId = req.user?.userId || 'demo-user-1';
     const { content, attachments } = req.body;
 
-    if (!content && (!attachments || attachments.length === 0)) {
+    const hasText = typeof content === 'string' && content.trim().length > 0;
+    const hasAttachments = Array.isArray(attachments) && attachments.length > 0;
+    if (!hasText && !hasAttachments) {
       return errorResponse(res, 'Message content or attachment required', 400);
     }
 
     const result = await chatService.postMessage(chatId, userId, content, attachments);
     return successResponse(res, result, 'Message processed', 201);
   } catch (err: any) {
-    return errorResponse(res, err.message, 500);
+    // Forward typed AI/provider errors (e.g. 400 empty, 502 upstream failure).
+    return errorResponse(res, err.message, err.statusCode || 500);
   }
 };
 
